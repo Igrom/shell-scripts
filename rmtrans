@@ -1,0 +1,98 @@
+#! /bin/bash
+#
+# rmtrans - remove transparency from an image. The background colour is assumed to be the colour in the top-left corner of the image.
+# Author: Igor Sowinski <igor@sowinski.blue>
+# License: 3-clause BSD license
+# Uses ImageMagick (see ImageMagick license).
+
+function print_help () {
+  echo -e " Usage: rmtrans [[ -f <fuzz>]|-s] [-t] -i <image>\n" \
+  " Command-line parameters:\n" \
+  "   -i <image> - selects the image to transform.\n" \
+  "   -f <fuzz> - percentage value of how similar colours are replaced with transparency.\n" \
+  "      "0" means only that color, "100" means all colours. Range: 0-100. Default: 0\n" \
+  "   -s - sweep over the possible fuzz range in increments, generating an image for each value of fuzz.\n" \
+  "   -t - removes the colour from the entire image instead of flood-filling from the top-left corner.\n" \
+  "\n" \
+  " Examples:\n" \
+  "   rmtrans -i image.jpg -f 30 -t - removes the background with 30% fuzz\n" \
+  "   rmtrans -s image.jpg - generates a sequence of images with varying fuzz settings" >&2
+}
+
+function get_top_left_pixel_color() {
+  convert "$1" -crop '1x1+0+0' txt:- | grep -o "#[a-ZA-Z0-9]\{6\}"
+}
+
+function remove_transparency() {
+  BGCOLOR=$(get_top_left_pixel_color "$IMAGE")
+  convert "$1" -fuzz "$2"% -transparent "$BGCOLOR" "$1.fuzz$2.png"
+}
+
+function remove_transparency_near() {
+  convert "$1" -bordercolor white -border 1x1 \
+    -alpha set -channel RGBA -fuzz "$2"% \
+    -fill none -floodfill +0+0 white \
+    -shave 1x1 "$1.fuzz$2.png"
+}
+
+function print_version() {
+  echo "rmtrans $VERSION"
+}
+
+function print_usage() {
+  echo "Usage: rmtrans [[ -f <fuzz>]|-s] [-t] -i <image>"
+}
+
+VERSION=1.0.0
+IMAGE=
+FUZZ=0
+SWEEP=0
+METHOD="remove_transparency_near"
+
+while getopts "hvi:tsf:" opt
+do
+  case "$opt" in
+    i) IMAGE="$OPTARG"
+       ;;
+    t) METHOD="remove_transparency"
+       ;;
+    s) SWEEP=1
+       ;;
+    f) FUZZ="$OPTARG"
+       ;;
+    v) print_version
+       exit 0
+       ;;
+    h) print_help
+       exit 0
+       ;;
+    *) echo -e "rmtrans: unrecognized option $opt" >&2
+       print_usage >&2
+       exit 1
+       ;;
+  esac
+done
+
+if [ -z "$IMAGE" ]
+then
+  echo -e "rmtrans: no image passed" >&2
+  print_usage >&2
+  exit 1
+fi
+
+if [ "$SWEEP" -eq 1 -a "$FUZZ" -gt 0 ]
+then
+  echo -e "rmtrans: cannot specify fuzz and sweep at the same time" >&2
+  print_usage >&2
+  exit 1
+fi
+
+if [ $SWEEP -eq 1 ]
+then
+  for ((i=0; i<100; i=i+5))
+  do
+    $METHOD "$IMAGE" "$i"
+  done
+else
+    $METHOD "$IMAGE" "$FUZZ"
+fi
